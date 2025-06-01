@@ -1,5 +1,13 @@
 # Mp4Toolbox_For_Dolby_digital
+## Star History
 
+<a href="https://www.star-history.com/#Basyaact/mp4toolbox&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Basyaact/mp4toolbox&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Basyaact/mp4toolbox&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Basyaact/mp4toolbox&type=Date" />
+ </picture>
+</a>
 #### 介绍
 专注于MP4文件处理与Dolby Digital音频编码的开源工具箱，提供高效、易用的杜比音视频处理功能。
 
