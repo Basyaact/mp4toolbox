@@ -1,0 +1,239 @@
+#!/usr/bin/env bash
+# ============================================================
+# mp4_toolkit.sh —— Bash 封装版 mp4demuxer/mp4muxer
+# 作者：Basyaact (BTv:808Melo)       日期：2025-05-04(v1.0.0)
+# 更新：
+#   • MUX 选择后，用户可以依次输入音频/视频文件，直到用户不再输入，自动进入合流。
+#   • 默认输出文件为 test.mp4，用户不输入时自动选择。
+#   • 添加帧率、Dolby Vision 配置，在合流前提供询问并自动配置。
+# ============================================================
+set -euo pipefail
+
+die()       { echo -e "❌ $*" >&2; exit 1; }
+check_file(){ [[ -f "$1" ]] || die "文件不存在：$1"; }
+make_dir()  { mkdir -p "$1";    }
+
+run_cmd() {
+  echo -e "\n>>> 执行： $*"
+  "$@" && echo -e "✅ 完成！\n" || die "命令失败，返回值 $?"
+}
+
+show_global_help() {
+  cat <<EOF
+⚠️ 本工具仅兼容 .mp4 文件
+
+用法：$0 [子命令] [选项]
+或    $0 input.mp4 [选项]  # 直接 demux
+
+子命令：
+  demux       拆分 MP4
+  mux         合并流为 MP4
+
+选项：
+  -h, --help  显示帮助
+
+示例：
+  $0 demux input.mp4 -o out_dir
+  $0 input.mp4               # 同 demux input.mp4
+  $0 mux -o out.mp4 -a audio.aac -v video.h264
+EOF
+}
+
+# ---------------- DEMUX ----------------
+demux_usage() {
+  cat <<EOF
+
+用法：$0 demux [input.mp4] [选项]
+或    $0 input.mp4  [选项]
+
+参数：
+  input.mp4            输入 MP4 文件，可选，若直接作为第一个参数使用
+
+选项：
+  -i, --input-file      输入 MP4 文件（当未以参数形式提供时）
+  -o, --output-folder   输出文件夹（默认：<input>_demux）
+  -t, --time-ranges     时间区间，例如 0-5.2,10-20
+  --verbose             显示详细信息
+  -h, --help            显示本帮助
+EOF
+}
+
+demux() {
+  local input="" output="" time="" verbose=0
+
+  # 帮助检查
+  for arg in "$@"; do
+    case "$arg" in
+      -h|--help) demux_usage; exit 0;;
+    esac
+  done
+
+  # 自动匹配第一个 .mp4 参数
+  for arg in "$@"; do
+    [[ -z $input && "$arg" == *.mp4 ]] && input="$arg"
+  done
+
+  # 参数解析
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      -i|--input-file)    input="$2"; shift 2;;
+      -o|--output-folder) output="$2"; shift 2;;
+      -t|--time-ranges)   time="$2"; shift 2;;
+      --verbose)          verbose=1; shift;;
+      *) shift;;
+    esac
+  done
+
+  # 交互提示输入
+  if [[ -z $input ]]; then
+    read -rp "请输入要拆分的 .mp4 文件: " input
+  fi
+  [[ $input == *.mp4 ]] || die "仅支持 .mp4 文件：$input"
+  check_file "$input"
+
+  # 输出目录
+  output=${output:-"${input%.*}_demux"}
+  make_dir "$output"
+
+  # 执行
+  local cmd=(mp4demuxer --input-file "$input" --output-folder "$output")
+  (( verbose )) && cmd+=(--verbose)
+  [[ -n $time ]] && cmd+=(--time-ranges "$time")
+  run_cmd "${cmd[@]}"
+}
+
+# ------------- MUX -------------
+mux_usage() {
+  cat <<EOF
+
+用法：$0 mux [选项]
+
+选项：
+  -o, --output-file       输出 MP4 文件（必填）
+  --mpeg4-brand <brand>   设置品牌标识
+  --overwrite             如果目标存在则覆盖
+  --dv-profile <profile>  Dolby Vision 配置
+  --hvc1flag              强制 HEVC hvc1 flag
+  -h, --help              显示本帮助
+EOF
+}
+
+mux() {
+  local outfile="test.mp4" overwrite=0 brand="" dv_profile="" hvc1=0
+  local audios=() videos=()
+
+  # 帮助检查
+  for arg in "$@"; do
+    case "$arg" in
+      -h|--help) mux_usage; exit 0;;
+    esac
+  done
+
+  # 默认输出文件为 test.mp4
+  read -rp "请输入输出 .mp4 文件 [默认 test.mp4]: " input_outfile
+  outfile=${input_outfile:-test.mp4}
+  [[ $outfile == *.mp4 ]] || outfile+='.mp4'
+
+  # 添加音频/视频流
+  echo -e "\n请输入要添加的音频或视频文件。输入完后按回车键继续。"
+
+  while true; do
+    read -rp "请输入文件路径（音频/视频）: " file
+    if [[ -z $file ]]; then
+      break
+    fi
+    check_file "$file"
+    
+    # 判断文件类型
+    ext=${file##*.}
+    case "$ext" in
+      aac|wav|mp3|ec3|ac3|ogg)
+        audios+=("$file")
+        ;;
+      h264|h265|mp4)
+        videos+=("$file")
+        ;;
+      *)
+        echo "不支持的文件类型：$file"
+        ;;
+    esac
+  done
+
+  [[ ${#audios[@]} -gt 0 || ${#videos[@]} -gt 0 ]] || die "请至少添加一个音频 (-a) 或 视频 (-v) 流"
+
+  # 构建命令
+  local cmd=(mp4muxer --overwrite -o  "$outfile")
+  for a in "${audios[@]}"; do
+    cmd+=(-i "$a")
+  done
+  for v in "${videos[@]}"; do
+    cmd+=(-i "$v")
+  done
+
+  # 获取帧率及 Dolby Vision 配置
+  read -rp "是否添加视频帧率 (--input-video-frame-rate)? (y/N): " add_fps
+  if [[ $add_fps =~ ^[Yy]$ ]]; then
+    read -rp "请输入视频帧率: " fps
+    cmd+=(--input-video-frame-rate "$fps")
+  fi
+
+  read -rp "是否添加 Dolby Vision 配置 (--dv-profile)? (y/N): " add_dv
+  if [[ $add_dv =~ ^[Yy]$ ]]; then
+    read -rp "请输入 Dolby Vision 配置 (4, 5, 7, 8, 9): " dv_profile
+    if [[ $dv_profile == 8 ]]; then
+      read -rp "请输入 Dolby Vision 兼容 ID (1-10): " dv_bl_compat_id
+    fi
+    cmd+=(--dv-profile "$dv_profile")
+    [[ -n $dv_bl_compat_id ]] && cmd+=(--dv-bl-compatible-id "$dv_bl_compat_id")
+  fi
+
+  read -rp "是否强制 HEVC hvc1 flag (--hvc1flag)? (y/N): " add_hvc
+  if [[ $add_hvc =~ ^[Yy]$ ]]; then
+    cmd+=(--hvc1flag)
+  fi
+
+  # 确认合并
+  echo -e "\n即将执行合并操作："
+  echo "输出文件：$outfile"
+  echo "视频流：${videos[*]}"
+  echo "音频流：${audios[*]}"
+  read -rp "是否继续合并 (y/N): " confirm
+  if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+    echo "操作已取消！"
+    exit 0
+  fi
+
+  # 执行
+  (( overwrite ))        && cmd+=(--overwrite)
+  [[ -n $brand ]]       && cmd+=(--mpeg4-brand "$brand")
+
+  run_cmd "${cmd[@]}"
+}
+
+# ------------- 主程序 -------------
+main_menu() {
+  echo -e "\n===== MP4 Toolkit 菜单 请勿用于商业用途 作者：Basyaact/MATWRK（BTv:808Melo）====="
+  echo " 1) Demux — 拆分 elementary streams"
+  echo " 2) Mux   — 合并 elementary streams"
+  echo " 0) 退出"
+  read -rp "请选择 [1/2/0]: " sel
+  case $sel in
+    1) demux ;;
+    2) mux   ;;
+    *) echo "再见！"; exit 0 ;;
+  esac
+}
+
+# ---------- 程序入口 ----------
+if [[ $# -eq 0 ]]; then
+  show_global_help
+  main_menu
+else
+  case $1 in
+    *.mp4) demux "$@";;
+    demux) shift; demux "$@";;
+    mux)   shift; mux "$@";;
+    -h|--help) show_global_help;;
+    *) die "未知子命令：$1";;
+  esac
+fi
