@@ -8,8 +8,6 @@
    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Basyaact/mp4toolbox&type=Date" />
  </picture>
 </a>
-#### 介绍
-专注于MP4文件处理与Dolby Digital音频编码的开源工具箱，提供高效、易用的杜比音视频处理功能。
 
 #### 软件架构
 目前只支持Mac Intel/Silicon和Linux x64/Arm64
